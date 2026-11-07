@@ -1,0 +1,16 @@
+node_modules
+.next
+.env
+.env.*
+!.env.example
+private-uploads
+playwright-report
+test-results
+*.tsbuildinfo
+.git
+.gitattributes
+.gitignore
+Dockerfile
+docker-compose.yml
+.dockerignore
+tests

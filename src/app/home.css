@@ -1,0 +1,42 @@
+/* Homepage additions on top of globals.css: pointer-depth layers, hero search, motion toggle. */
+.pointer-scene{perspective:1100px}
+.pointer-surface{transform-style:preserve-3d;height:100%;width:100%;will-change:transform}
+.hero-depth{position:absolute;inset:0}
+.hero-depth .pointer-surface{display:flex;align-items:center;justify-content:center}
+.hero-depth .hero-review{transform:translateZ(30px)}
+.hero-depth .floating-proof{transform:translateZ(95px) rotate(5deg)}
+.hero-depth .floating-grade{transform:translateZ(65px) rotate(3deg)}
+.hero-depth .visual-note{transform:translateZ(45px) rotate(-5deg)}
+
+.hero-search{display:flex;align-items:center;gap:8px;max-width:425px;background:#fff;border:1px solid #e5dff0;border-radius:12px;padding:6px 6px 6px 15px;box-shadow:0 10px 30px #4d2e7c0d}
+.hero-search>svg{color:#a08fc0}
+.hero-search input{flex:1;min-width:0;border:0;outline:0;font-size:12px;padding:8px 0;color:var(--ink);background:transparent}
+.hero-search input::placeholder{color:#a79dba}
+.hero-search:focus-within{border-color:#c3a8ee;box-shadow:0 0 0 4px #b28be61a,0 10px 30px #4d2e7c0d}
+.hero-search .button{min-height:38px;padding:9px 18px;border-radius:8px}
+
+.pointer-toggle{position:absolute;left:0;bottom:4px;z-index:5;display:inline-flex;align-items:center;gap:6px;font-size:9px;font-weight:600;letter-spacing:.4px;color:#8f7fb0;background:#fff;border:1px solid #e8e1f2;border-radius:20px;padding:5px 10px}
+.pointer-toggle:hover{border-color:#cdb8ec;color:#6d4fb0}
+.pointer-toggle svg{color:#8f6cc9}
+.hero-hint{position:absolute;left:104px;bottom:9px;font-size:9px;color:#a89bbd;letter-spacing:.3px;white-space:nowrap}
+@media(hover:none),(pointer:coarse){.hero-hint{display:none}}
+
+.feature-scene{min-width:0;perspective:900px}
+.feature-scene .pointer-surface{height:100%}
+.feature-scene .feature-card{height:100%;display:flex;flex-direction:column}
+.feature-card .text-link{margin-top:auto;font-size:10px}
+
+.reputation-panel{border:1px solid #ece4f5;border-radius:16px;padding:28px 30px;box-shadow:0 18px 45px #4d2e7c0f}
+.reputation-panel .grade-scale{margin-bottom:18px}
+.reputation-panel .live-score+.live-score{margin-top:9px}
+.reputation-panel .fine-copy{margin-bottom:0}
+
+@media(max-width:800px){.feature-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){
+  .feature-grid{grid-template-columns:1fr}
+  .hero-search{margin-left:auto;margin-right:auto}
+  .hero-depth .floating-proof{transform:translateZ(60px) rotate(5deg)}
+  .hero-depth .floating-grade{transform:translateZ(40px) rotate(3deg)}
+  .pointer-toggle{bottom:-20px}
+}
+@media(prefers-reduced-motion:reduce){.pointer-surface{transform:none!important}}

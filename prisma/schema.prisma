@@ -1,0 +1,509 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  MODERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum Status {
+  PENDING
+  PUBLISHED
+  REJECTED
+  HIDDEN
+  REMOVED
+  INFO_REQUESTED
+}
+
+enum Grade {
+  A_PLUS
+  A
+  B
+  C
+  D
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_OWNER
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+// Network-security verification state for a review. A review only ever
+// becomes PUBLISHED while SECURITY_CLEARED; every other state keeps it out of
+// grades, counts, and public pages.
+enum SecurityState {
+  PENDING_SECURITY_CHECK
+  SECURITY_CHECK_IN_PROGRESS
+  SECURITY_CLEARED
+  FLAGGED_VPN
+  FLAGGED_PROXY
+  FLAGGED_TOR
+  FLAGGED_HIGH_RISK
+  SECURITY_CHECK_FAILED
+  MANUAL_REVIEW_REQUIRED
+}
+
+enum IpCategory {
+  VPN
+  PROXY
+  TOR
+  HOSTING
+  MALICIOUS
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  displayName  String
+  passwordHash String
+  role         Role     @default(CUSTOMER)
+  verifiedAt   DateTime?
+  disabledAt   DateTime?
+  deletionRequestedAt DateTime?
+  createdAt    DateTime @default(now())
+  sessions     Session[]
+  tokens       AccountToken[]
+  reviews      Review[]
+  attachments  Attachment[]
+  memberships  Membership[]
+  claims       Claim[]
+  replies      Reply[]
+  reports      Report[]
+  notifications Notification[]
+  adminNotes   AdminNote[]
+  assignedClaims   Claim[]   @relation("ClaimAssignee")
+  assignedReports  Report[]  @relation("ReportAssignee")
+  assignedReviews  Review[]  @relation("ReviewAssignee")
+  tickets          Ticket[]
+  ticketMessages   TicketMessage[]
+  assignedTickets  Ticket[]  @relation("TicketAssignee")
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model AccountToken {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String
+  expiresAt DateTime
+  @@index([userId, kind])
+}
+
+model Business {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  name           String
+  description    String
+  category       String
+  city           String
+  website        String?
+  domain         String?  @unique
+  logoKey        String?
+  logoSize       Int?
+  supportEnabled Boolean  @default(true)
+  disabledAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  reviews        Review[]
+  members        Membership[]
+  claims         Claim[]
+  tickets        Ticket[]
+  @@index([category, disabledAt])
+  @@index([name])
+}
+
+model Membership {
+  userId     String
+  businessId String
+  user       User     @relation(fields: [userId], references: [id])
+  business   Business @relation(fields: [businessId], references: [id])
+  createdAt  DateTime @default(now())
+  @@id([userId, businessId])
+}
+
+model Claim {
+  id          String   @id @default(cuid())
+  userId      String
+  businessId  String
+  user        User     @relation(fields: [userId], references: [id])
+  business    Business @relation(fields: [businessId], references: [id])
+  evidence    String
+  status      Status   @default(PENDING)
+  decision    String?
+  domainProofToken  String?
+  domainProofSentAt DateTime?
+  assigneeId  String?
+  assignee    User?    @relation("ClaimAssignee", fields: [assigneeId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@unique([userId, businessId])
+  @@index([status, createdAt])
+  @@index([assigneeId])
+}
+
+model Review {
+  id              String   @id @default(cuid())
+  userId          String
+  businessId      String
+  user            User     @relation(fields: [userId], references: [id])
+  business        Business @relation(fields: [businessId], references: [id])
+  headline        String
+  body            String
+  serviceGrade    Grade
+  supportGrade    Grade?
+  supportSnapshot Boolean
+  score           Float
+  status          Status   @default(PENDING)
+  // Nullable unique key frees the slot only when a review is explicitly removed.
+  // Assigned on the server as JSON.stringify([userId, businessId]).
+  activeKey       String?  @unique
+  // HMAC of the submitter IP. A partial unique index on (businessId, ipHash)
+  // over active statuses enforces one review per network per business.
+  ipHash          String?
+  // Which HMAC key produced ipHash (1 = APP_SECRET, 2 = ANTI_VPN_HMAC_SECRET).
+  ipHashVersion   Int      @default(1)
+  securityState   SecurityState @default(PENDING_SECURITY_CHECK)
+  moderationNote  String?
+  appealedAt      DateTime?
+  appealNote      String?
+  assigneeId      String?
+  assignee        User?   @relation("ReviewAssignee", fields: [assigneeId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  attachments     Attachment[]
+  reply           Reply?
+  securityAssessment ReviewSecurityAssessment?
+  securityAudit      ReviewSecurityAuditLog[]
+  @@index([businessId, status, createdAt])
+  @@index([userId, createdAt])
+  @@index([appealedAt])
+  @@index([securityState, createdAt])
+}
+
+// Local IP intelligence. `network` is a PostgreSQL cidr column with a GiST
+// index so lookups are prefix matches in the database, not in-memory scans.
+// It is written by raw SQL in the feed importer; Prisma treats it as opaque.
+model IpIntelligenceRecord {
+  id            String   @id @default(cuid())
+  cidr          String
+  network       Unsupported("cidr")
+  ipVersion     Int
+  category      IpCategory
+  source        String
+  confidence    Int
+  metadata      Json?
+  firstSeenAt   DateTime @default(now())
+  lastUpdatedAt DateTime @default(now())
+  expiresAt     DateTime?
+  @@unique([source, cidr, category])
+  @@index([source])
+  @@index([expiresAt])
+}
+
+model IpIntelligenceFeed {
+  id              String   @id @default(cuid())
+  source          String   @unique
+  url             String
+  category        IpCategory
+  confidence      Int
+  format          String   @default("lines")
+  license         String
+  enabled         Boolean  @default(true)
+  status          String   @default("never")
+  lastAttemptAt   DateTime?
+  lastSuccessAt   DateTime?
+  recordsImported Int      @default(0)
+  errorCode       String?
+  errorSummary    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model ReviewSecurityAssessment {
+  id             String   @id @default(cuid())
+  reviewId       String   @unique
+  review         Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  ipHash         String?
+  ipHashVersion  Int      @default(1)
+  // AES-256-GCM ciphertext of the normalized IP, kept only so pending checks
+  // can be retried and cleared reviews re-evaluated after feed updates. The
+  // cleanup job nulls it after ANTI_VPN_IP_RETENTION_DAYS.
+  encryptedIp    String?
+  riskScore      Int      @default(0)
+  classification String   @default("INSUFFICIENT_EVIDENCE")
+  decision       SecurityState @default(PENDING_SECURITY_CHECK)
+  signals        Json     @default("[]")
+  providerStatus Json     @default("[]")
+  datasetVersion String?
+  checkedAt      DateTime?
+  expiresAt      DateTime?
+  retryCount     Int      @default(0)
+  nextRetryAt    DateTime?
+  lastError      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  @@index([decision, nextRetryAt])
+  @@index([datasetVersion, expiresAt])
+  @@index([riskScore])
+  @@index([checkedAt])
+}
+
+model ReviewSecurityAuditLog {
+  id            String   @id @default(cuid())
+  reviewId      String
+  review        Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  // Null actor = automated system decision.
+  actorId       String?
+  action        String
+  previousState SecurityState?
+  newState      SecurityState?
+  reasonCode    String
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  @@index([reviewId, createdAt])
+  @@index([createdAt])
+}
+
+model IpProviderCache {
+  id        String   @id @default(cuid())
+  provider  String
+  ipHash    String
+  result    Json
+  fetchedAt DateTime @default(now())
+  expiresAt DateTime
+  @@unique([provider, ipHash])
+  @@index([expiresAt])
+}
+
+model SecurityProviderHealth {
+  provider            String   @id
+  status              String
+  lastAttemptAt       DateTime?
+  lastSuccessAt       DateTime?
+  lastLatencyMs       Int?
+  consecutiveFailures Int      @default(0)
+  errorSummary        String?
+  updatedAt           DateTime @updatedAt
+}
+
+model SecurityJobRun {
+  id         String   @id @default(cuid())
+  job        String
+  status     String
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+  summary    Json?
+  error      String?
+  @@index([job, startedAt])
+}
+
+model Attachment {
+  id        String   @id @default(cuid())
+  userId    String
+  reviewId  String?
+  user      User     @relation(fields: [userId], references: [id])
+  review    Review?  @relation(fields: [reviewId], references: [id])
+  ticketMessageId String?
+  ticketMessage   TicketMessage? @relation(fields: [ticketMessageId], references: [id])
+  storageKey String @unique
+  mime      String
+  size      Int
+  label     String
+  status    Status   @default(PENDING)
+  createdAt DateTime @default(now())
+  @@index([userId, reviewId])
+  @@index([ticketMessageId])
+}
+
+model Reply {
+  id        String   @id @default(cuid())
+  reviewId  String   @unique
+  userId    String
+  review    Review   @relation(fields: [reviewId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+  body      String
+  status    Status   @default(PENDING)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Report {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  targetType String
+  targetId   String
+  kind       String   @default("other")
+  priority   Int      @default(0)
+  reason     String
+  status     Status   @default(PENDING)
+  resolution String?
+  assigneeId String?
+  assignee   User?    @relation("ReportAssignee", fields: [assigneeId], references: [id])
+  createdAt  DateTime @default(now())
+  @@index([status, createdAt])
+  @@index([assigneeId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  message   String
+  href      String
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  targetId   String
+  detail     String
+  createdAt  DateTime @default(now())
+  @@index([createdAt])
+}
+
+model PlatformConfig {
+  id                 String  @id @default("platform")
+  minimumReviews     Int     @default(3)
+  siteTitle          String  @default("Review Matters — Real Reviews. Clear Grades.")
+  siteDescription    String  @default("Discover businesses through customer experiences, transparent grades, and optional supporting evidence. Every review matters.")
+  announcement       String?
+  readOnly           Boolean @default(false)
+  maxAttachments     Int     @default(4)
+  maxAttachmentBytes Int     @default(5242880)
+}
+
+model AdminNote {
+  id         String   @id @default(cuid())
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  targetType String
+  targetId   String
+  body       String
+  createdAt  DateTime @default(now())
+  @@index([targetType, targetId, createdAt])
+}
+
+model EmailTemplate {
+  key       String   @id
+  subject   String
+  body      String
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+
+model EmailLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  recipient String
+  kind      String
+  status    String
+  detail    String   @default("")
+  dedupeKey String?  @unique
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+}
+
+model RateBucket {
+  key       String   @id
+  count     Int
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+
+model Ticket {
+  id         String @id @default(cuid())
+  // Sequential public reference, generated by the ticket_number_seq sequence.
+  number     String @unique @default(dbgenerated("'BUS-' || nextval('ticket_number_seq'::regclass)"))
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  businessId String?
+  business   Business? @relation(fields: [businessId], references: [id])
+  subject    String
+  category   String
+  status     TicketStatus   @default(OPEN)
+  priority   TicketPriority @default(NORMAL)
+  assigneeId String?
+  assignee   User?    @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  resolvedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  messages   TicketMessage[]
+  events     TicketEvent[]
+  @@index([userId, createdAt])
+  @@index([status, priority, createdAt])
+  @@index([assigneeId])
+  @@index([businessId])
+}
+
+model TicketMessage {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  body      String
+  // Internal notes are staff-only: never rendered for owners or emailed to them.
+  internal  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  attachments Attachment[]
+  @@index([ticketId, createdAt])
+}
+
+model TicketEvent {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actorId   String?
+  detail    String
+  createdAt DateTime @default(now())
+  @@index([ticketId, createdAt])
+}
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  email     String
+  name      String
+  subject   String
+  body      String
+  resolvedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([resolvedAt, createdAt])
+}

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Exec(Start-Sleep)",
+      "Exec(Add-Content)",
+      "Exec(@')",
+      "Exec(Select-Object)",
+      "Exec(netstat)",
+      "Exec(http://localhost:3100)",
+      "Exec(npx playwright)"
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+# Optional Docker Compose deployment for Coolify.
+# If you already run Postgres elsewhere, keep only the `app` service and set
+# DATABASE_URL in Coolify's environment panel instead.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/reviewmatters}
+      APP_URL: ${APP_URL}
+      APP_SECRET: ${APP_SECRET}
+      UPLOAD_DIR: /app/private-uploads
+      TRUST_PROXY: ${TRUST_PROXY:-x-forwarded-for}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      MAIL_FROM: ${MAIL_FROM}
+      SUPPORT_ALERT_EMAIL: ${SUPPORT_ALERT_EMAIL}
+      ANTI_VPN_ENABLED: ${ANTI_VPN_ENABLED:-true}
+      ANTI_VPN_MODE: ${ANTI_VPN_MODE:-hybrid}
+      ANTI_VPN_FAIL_CLOSED: ${ANTI_VPN_FAIL_CLOSED:-true}
+      ANTI_VPN_EXTERNAL_PROVIDER: ${ANTI_VPN_EXTERNAL_PROVIDER:-none}
+      ANTI_VPN_EXTERNAL_API_KEY: ${ANTI_VPN_EXTERNAL_API_KEY:-}
+      ANTI_VPN_HMAC_SECRET: ${ANTI_VPN_HMAC_SECRET}
+      ANTI_VPN_IP_RETENTION_DAYS: ${ANTI_VPN_IP_RETENTION_DAYS:-365}
+      ANTI_VPN_TRUSTED_PROXY_CIDRS: ${ANTI_VPN_TRUSTED_PROXY_CIDRS:-}
+      ANTI_VPN_INPROCESS_SCHEDULER: ${ANTI_VPN_INPROCESS_SCHEDULER:-true}
+    volumes:
+      - uploads:/app/private-uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: reviewmatters
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d reviewmatters"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  uploads:
+  pgdata:
